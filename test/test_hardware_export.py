@@ -68,7 +68,9 @@ def check_trajectory_content(doc):
     assert doc['joint_names'] == ['joint%d' % i for i in range(6)]
     assert len(doc['waypoints']) == 3
 
-    expected_times = [1 / 24, 1.0, 2.0]
+    # Frames [1, 24, 48] at 24fps, normalized so the FIRST keyframe is t=0
+    # (see trajectory_export._times_from_frames) -- not raw frame/fps.
+    expected_times = [0.0, 23 / 24, 47 / 24]
     expected_positions = [pose + [0.0] for _, pose in [(1, [0, 0, 0, 0, 0])]] + [
         POSES[1][1] + [10.0], POSES[2][1] + [0.0]]
     # first waypoint's gripper is 0 (rest pose)
@@ -150,6 +152,94 @@ def check_ros_bag(traj_path, bag_path):
     print('ROS bag round-trip check: PASS')
 
 
+_FAKE_ACTION_SERVER = '''
+import rclpy
+from rclpy.action import ActionServer
+from rclpy.node import Node
+from control_msgs.action import FollowJointTrajectory
+
+class FakeServer(Node):
+    def __init__(self):
+        super().__init__("fake_trajectory_server")
+        self._server = ActionServer(
+            self, FollowJointTrajectory, "/arm_controller/follow_joint_trajectory",
+            self.execute_callback)
+
+    def execute_callback(self, goal_handle):
+        traj = goal_handle.request.trajectory
+        print("RECEIVED joint_names=%s points=%d" % (list(traj.joint_names), len(traj.points)), flush=True)
+        for pt in traj.points:
+            print("POINT %s" % list(pt.positions), flush=True)
+        goal_handle.succeed()
+        result = FollowJointTrajectory.Result()
+        result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
+        return result
+
+rclpy.init()
+node = FakeServer()
+print("SERVER_UP", flush=True)
+rclpy.spin(node)
+'''
+
+
+def check_ros_action_server(traj_path):
+    """
+    Runs the --action-server path against a real (minimal)
+    FollowJointTrajectory action server -- not just a bag/topic dump --
+    and checks both that the client reports success AND that the server
+    actually received the correct joint names and positions, not just
+    that *some* interaction happened.
+    """
+    import time as _time
+
+    with tempfile.NamedTemporaryFile('w', suffix='.py', delete=False) as f:
+        f.write(_FAKE_ACTION_SERVER)
+        server_script = f.name
+
+    server = subprocess.Popen(
+        [sys.executable, '-u', server_script], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        deadline = _time.time() + 10
+        while _time.time() < deadline:
+            line = server.stdout.readline()
+            if 'SERVER_UP' in line:
+                break
+        else:
+            raise AssertionError('fake action server never came up')
+
+        result = subprocess.run(
+            [sys.executable, os.path.join(REPO, 'mimic', 'scripts', 'hardware', 'ros_trajectory_export.py'),
+             '--trajectory', traj_path, '--servo-map', SERVO_MAP,
+             '--action-server', '/arm_controller/follow_joint_trajectory'],
+            capture_output=True, text=True, timeout=20)
+        assert result.returncode == 0, 'ros_trajectory_export --action-server failed:\n%s' % result.stderr
+        assert 'error_code=0' in result.stdout, (
+            'expected FollowJointTrajectory SUCCESSFUL (error_code=0), got:\n%s' % result.stdout)
+
+        server_output = []
+        deadline = _time.time() + 5
+        while _time.time() < deadline:
+            line = server.stdout.readline()
+            if line:
+                server_output.append(line)
+            if any('RECEIVED' in l for l in server_output) and \
+               sum(1 for l in server_output if l.startswith('POINT')) >= 3:
+                break
+        server_text = ''.join(server_output)
+        assert 'shoulder_pan' in server_text and 'gripper' in server_text, (
+            'server did not report receiving the expected joint names:\n%s' % server_text)
+        assert sum(1 for l in server_output if l.startswith('POINT')) == 3, (
+            'server did not report receiving 3 points:\n%s' % server_text)
+        print('ROS action-server end-to-end check: PASS')
+    finally:
+        server.terminate()
+        try:
+            server.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+        os.unlink(server_script)
+
+
 if __name__ == '__main__':
     with tempfile.TemporaryDirectory() as tmp:
         traj_path = os.path.join(tmp, 'traj.json')
@@ -158,8 +248,9 @@ if __name__ == '__main__':
         check_feetech_dry_run(traj_path)
         try:
             check_ros_bag(traj_path, os.path.join(tmp, 'bag'))
+            check_ros_action_server(traj_path)
         except ImportError:
-            print('ROS2 not sourced in this environment -- skipping ROS bag check '
-                  '(run `source /opt/ros/humble/setup.bash` first to include it)')
+            print('ROS2 not sourced in this environment -- skipping ROS checks '
+                  '(run `source /opt/ros/humble/setup.bash` first to include them)')
     print()
     print('ALL HARDWARE EXPORT CHECKS PASSED')

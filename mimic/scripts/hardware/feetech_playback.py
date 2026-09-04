@@ -117,8 +117,8 @@ def play(trajectory_doc, servos, port, dry_run=True, speed_scale=1.0):
         for wp in waypoints:
             dt = (wp['time'] - prev_time) / speed_scale
             prev_time = wp['time']
-            if dt > 0:
-                time.sleep(dt) if not dry_run else None
+            if dt > 0 and not dry_run:
+                time.sleep(dt)
 
             values = {}
             for s, deg in zip(servos, wp['positions_deg']):

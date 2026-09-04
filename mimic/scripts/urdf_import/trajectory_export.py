@@ -34,6 +34,19 @@ class TrajectoryExportError(Exception):
     pass
 
 
+def _times_from_frames(sorted_frames, fps):
+    """
+    Converts an ordered list of keyframe frame numbers into seconds,
+    normalized so the FIRST keyframe is t=0 -- if an animator's first
+    waypoint happens to sit at frame 50 rather than frame 1, playback
+    shouldn't include a 50-frame dead pause before anything moves.
+    Shared by both host exporters so they can't disagree on this again
+    (an earlier version of this file normalized in Maya but not Blender).
+    """
+    origin = sorted_frames[0]
+    return [(frame - origin) / fps for frame in sorted_frames]
+
+
 def _write_json(path, joint_names, fps, waypoints, source_format, robot_name):
     doc = {
         'schema': 'mimic.trajectory.v1',
@@ -106,8 +119,9 @@ def export_from_blender(rig, out_path, robot_name=None, fps=None):
             'Insert a keyframe (I) after each pose you want recorded as a waypoint.')
 
     sorted_frames = sorted(times)
+    wp_times = _times_from_frames(sorted_frames, fps)
     waypoints = []
-    for frame in sorted_frames:
+    for frame, t in zip(sorted_frames, wp_times):
         positions = []
         for i, obj in enumerate(axis_objs):
             fcurve = curves_by_index.get(i)
@@ -115,7 +129,7 @@ def export_from_blender(rig, out_path, robot_name=None, fps=None):
                 positions.append(math.degrees(fcurve.evaluate(frame)))
             else:
                 positions.append(math.degrees(obj.rotation_euler.z))
-        waypoints.append((frame / fps, positions))
+        waypoints.append((t, positions))
 
     return _write_json(out_path, joint_names, fps, waypoints, 'blender', robot_name or rig.get('name', 'robot'))
 
@@ -155,19 +169,36 @@ def export_from_maya(rig, out_path, robot_name=None, fps=None):
             'or right-click > Key Selected) after each pose you want recorded as a waypoint.')
 
     sorted_frames = sorted(times)
+    wp_times = _times_from_frames(sorted_frames, fps)
     waypoints = []
-    for frame in sorted_frames:
+    for frame, t in zip(sorted_frames, wp_times):
         positions = [cmds.getAttr(node + '.rotateZ', time=frame) for node in axis_nodes]
-        waypoints.append(((frame - sorted_frames[0]) / fps, positions))
+        waypoints.append((t, positions))
 
     return _write_json(out_path, joint_names, fps, waypoints, 'maya', robot_name or rig.get('name', 'robot'))
 
 
 def _maya_fps():
+    """
+    cmds.currentUnit(query=True, time=True) returns either a named unit
+    (game/film/pal/ntsc/show/palf/ntscf) or a literal "<number>fps" string
+    for anything else Maya's Preferences > Settings > Time lets you pick
+    (23.976fps, 29.97fps, 50fps, a fully custom rate, ...). Only handling
+    the named table and silently defaulting anything else to 24 would
+    export correct-looking-but-wrong timing for every one of those numeric
+    rates except the one that happens to already be 24.
+    """
+    import re
     import maya.cmds as cmds
     unit_to_fps = {
         'game': 15, 'film': 24, 'pal': 25, 'ntsc': 30, 'show': 48,
         'palf': 50, 'ntscf': 60,
     }
     unit = cmds.currentUnit(query=True, time=True)
-    return unit_to_fps.get(unit, 24)
+    if unit in unit_to_fps:
+        return unit_to_fps[unit]
+    m = re.match(r'^([\d.]+)fps$', unit)
+    if m:
+        return float(m.group(1))
+    raise TrajectoryExportError(
+        'Unrecognized Maya time unit %r; pass fps= explicitly to export_from_maya().' % unit)

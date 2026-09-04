@@ -137,16 +137,23 @@ directly for a non-Feetech robot with no servo map at all.
 
 Everything up to the servo/ROS write is tested in CI-reachable ways (no
 physical robot needed): trajectory export round-trips real keyframes
-correctly, Feetech `--dry-run` exercises the full degree→servo-unit
-conversion including the `range_0_100` gripper math, and the ROS path has
-been exercised for real against ROS2 Humble -- `--bag` output read back
-and diffed against the source trajectory, and `--publish-topic` confirmed
-delivered to a live subscriber, both byte-exact.
+correctly (including a fixed inconsistency where Maya and Blender used to
+disagree on where t=0 was), Feetech `--dry-run` exercises the full
+degree→servo-unit conversion including the `range_0_100` gripper math, and
+every ROS delivery path has been exercised for real against ROS2 Humble --
+`--bag` output read back and diffed against the source trajectory,
+`--publish-topic` confirmed delivered to a live subscriber, and
+`--action-server` run against a real (minimal) `FollowJointTrajectory`
+action server with the received joint names/positions/point count
+confirmed byte-exact against what was sent -- all three paths, not just
+the easy one.
 
 What can only be verified against actual hardware: that `--port` talks to
-a real servo bus correctly, and that a real `FollowJointTrajectory` action
-server accepts a goal built this way. Both use well-established libraries
-(`lerobot`'s servo bus, `rclpy`'s action client) doing exactly what their
-own reference implementations do, but "the bytes on the wire are right"
-and "the robot moves correctly" are different claims -- test on hardware
-before trusting a recorded trajectory unattended.
+a real servo bus correctly, and that a *real robot's* action server (not
+a test stub) accepts and executes the goal as expected. Both use
+well-established libraries (`lerobot`'s servo bus, `rclpy`'s action
+client) doing exactly what their own reference implementations do, and
+the ROS protocol interaction itself is now proven correct end-to-end --
+but "the message is well-formed and accepted" and "the robot moves
+correctly" are still different claims. Test on hardware before trusting a
+recorded trajectory unattended.
