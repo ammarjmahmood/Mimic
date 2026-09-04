@@ -1,0 +1,14 @@
+{
+    "schema": "mimic.servo_map.v1",
+    "robot": "SO-ARM101",
+    "protocol": "feetech",
+    "comment": "Same layout as so_arm_feetech.json (SO-ARM100) -- see that file's comment -- but with SO-ARM101's own gripper joint limits, which differ slightly from the SO-ARM100's.",
+    "servos": [
+        {"joint_index": 0, "name": "shoulder_pan", "id": 1, "model": "sts3215", "norm_mode": "degrees"},
+        {"joint_index": 1, "name": "shoulder_lift", "id": 2, "model": "sts3215", "norm_mode": "degrees"},
+        {"joint_index": 2, "name": "elbow_flex", "id": 3, "model": "sts3215", "norm_mode": "degrees"},
+        {"joint_index": 3, "name": "wrist_flex", "id": 4, "model": "sts3215", "norm_mode": "degrees"},
+        {"joint_index": 4, "name": "wrist_roll", "id": 5, "model": "sts3215", "norm_mode": "degrees"},
+        {"joint_index": 5, "name": "gripper", "id": 6, "model": "sts3215", "norm_mode": "range_0_100", "is_tool": true, "range_deg": [-10.0, 100.0]}
+    ]
+}
