@@ -1,14 +1,110 @@
 # Generic URDF/MJCF Importer for Mimic — Maya + Blender
 
-Import URDF or MJCF robot descriptions (validated on **SO-ARM100**,
-**SO-ARM101**, **Unitree G1**, and **Microduck**) and generate a rig with
-working IK/FK animation. Runs in **Maya** (extending Mimic) and in
-**Blender** (no licence required).
+Bring in a robot description file (URDF or MJCF — the formats used by
+ROS, Gazebo, MuJoCo, and most robotics research/hobby projects), get a
+fully assembled, animatable robot in return. Drag a handle in the
+viewport and the robot follows, just like posing a character. Works for
+a simple desktop arm, a four-legged robot, or a full humanoid — the
+importer figures out the joints and limbs from the file automatically.
 
-Mimic upstream only supports 6-axis industrial arms with one of two
-closed-form solver topologies. This adds a path for arbitrary URDF robots
-with an N-DOF numerical solver, without touching the existing industrial
-code path.
+Validated on **SO-ARM100**, **SO-ARM101**, **Unitree G1** (humanoid), and
+**Microduck** (a small biped). Runs in **Blender** (free, no license —
+recommended if you're not sure which to use) and in **Maya** (extends
+Mimic itself).
+
+---
+
+## Quickstart — no programming required
+
+This is the Blender path: 3 minutes to install, then everything else is
+buttons. (Maya users: see [Using it in Maya](#using-it-in-maya) below —
+same idea, slightly different install.)
+
+### 1. Install (one time)
+
+1. Get [Blender](https://www.blender.org/download/) (free) if you don't
+   have it, and clone or download this repository.
+2. In Blender: **Edit → Preferences → Add-ons → Install...**
+3. Select
+   [`mimic/scripts/urdf_import/mimic_robot_importer_addon.py`](mimic/scripts/urdf_import/mimic_robot_importer_addon.py)
+   from wherever you put this repo, and enable the checkbox next to
+   **"Import: Mimic Robot Importer"** that appears.
+4. Still in that Preferences panel, expand the add-on and set **Repo
+   Path** to the folder you put this repo in (the one with a `mimic`
+   folder inside it). This is the only setup step — everything from here
+   on is clicking, not typing.
+
+### 2. Import a robot and pose it
+
+In the 3D Viewport, press **N** to open the sidebar if it's not already
+open, and click the **Robot Import** tab. Browse to a `.urdf` or `.xml`
+(MJCF) file — a few are already included under
+[`mimic/robot_descriptions/`](mimic/robot_descriptions) if you just want
+to try it — and click **Build Rig**.
+
+That's it: the robot appears, fully assembled, with a handle (an orange
+arrow icon, `target_CTRL`) at the end of each limb it can solve for.
+**Drag any handle and the limb follows it live.**
+
+<p align="center"><img src="docs/media/so100_demo.gif" width="600" alt="Dragging target_CTRL to pose an SO-ARM100"></p>
+
+Robots with more than one limb — legs, arms, a head — get one
+independent handle per limb, listed by name in the panel with a
+**Select** button next to each, so you always know which handle moves
+which part:
+
+<p align="center"><img src="docs/media/microduck_demo.gif" width="600" alt="Posing Microduck's independent left leg, right leg, and head"></p>
+
+<p align="center"><img src="docs/media/g1_demo.gif" width="600" alt="Posing the Unitree G1 humanoid's arm independently of its legs"></p>
+
+### 3. Record a performance, export it
+
+Pose the robot, click **Record Waypoint** — that's one frame of
+animation captured, and the timeline jumps forward automatically so the
+next pose you record becomes the next waypoint. Repeat as many times as
+you like, then scrub the timeline (or press Space to play) to preview it
+— it plays back exactly like animating a character, because that's
+genuinely what's happening under the hood.
+
+When you're happy with it, click **Export Trajectory...** to save a JSON
+file with every waypoint you recorded. That file is what you hand to
+`mimic/scripts/hardware/feetech_playback.py` (to drive real Feetech
+servos, e.g. a physical SO-ARM100) or `ros_trajectory_export.py` (to
+drive anything on ROS2) — see
+[`mimic/scripts/hardware/README.md`](mimic/scripts/hardware/README.md).
+
+### If something goes wrong
+
+- **"Set Repo Path..." error** — you skipped step 4 above; go back to
+  Preferences and fill it in.
+- **Build Rig does nothing / an error appears** — check the small status
+  line under the button, and Blender's System Console (Window → Toggle
+  System Console on Windows; run Blender from a terminal on Linux/macOS)
+  for the full message.
+- **The robot looks scattered/broken** — the file's mesh references may
+  be missing or its geometry may use a joint type this importer doesn't
+  yet support (only rotating/hinge joints are supported — sliding joints
+  are reported, not silently guessed at). Try one of the bundled robots
+  first to confirm the add-on itself is working.
+
+---
+
+## Using it in Maya
+
+Same underlying importer, extending Mimic's own rigging tools instead of
+a standalone add-on. Needs a working Maya install (and its license):
+
+```python
+import sys
+sys.path.insert(0, r"<repo>\mimic\scripts")
+sys.path.insert(0, r"<repo>\mimic\scripts\urdf_import")
+import maya.cmds as cmds
+cmds.loadPlugin(r"<repo>\mimic\plug-ins\robotIKGeneric.py")
+import urdf_import_ui; urdf_import_ui.urdf_import_ui()
+```
+(On Linux/macOS, use `/` and forward-slash paths.) That opens a window
+with the same Browse / Build Rig flow described above, plus FK sliders.
+Drag `target_CTRL` in the viewport for IK, same as Blender.
 
 ---
 
@@ -131,14 +227,26 @@ Both are ~170× smaller than the ≈0.2 mm tolerance of a 3D-printed part.
 
 ---
 
-## Running it
+## Python API (scripting, not the click-driven add-on)
 
-All paths below are relative to a checkout of this repo (`<repo>` =
-wherever you cloned it — on Windows that's just the checkout folder, same
-idea, Windows paths).
+For automation, testing, or just preferring code over buttons. The
+[Quickstart](#quickstart--no-programming-required) above covers the
+add-on UI; this is the same underlying functions, called directly. All
+paths below are relative to a checkout of this repo (`<repo>` = wherever
+you cloned it — on Windows that's just the checkout folder, same idea,
+Windows paths).
 
-**Maya** (GUI, needs a valid Maya licence):
 ```python
+# Blender
+import sys
+sys.path += [r"<repo>\mimic\scripts", r"<repo>\mimic\scripts\urdf_import"]
+import blender_rig_builder as brb
+rig = brb.build_rig(r"<repo>\path\to\robot.urdf")
+brb.install_live_ik(rig)               # drag any target_CTRL in the viewport, it re-solves live
+brb.record_waypoint(rig)                # keyframe the current pose
+```
+```python
+# Maya
 import sys
 sys.path.insert(0, r"<repo>\mimic\scripts")
 sys.path.insert(0, r"<repo>\mimic\scripts\urdf_import")
@@ -148,22 +256,13 @@ import urdf_import_ui; urdf_import_ui.urdf_import_ui()
 ```
 (On Linux/macOS, use `/` and forward-slash paths instead of the `r"..."` Windows form.)
 
-Bundled validation descriptions (including their STL assets) are available at:
+Bundled validation descriptions (including their mesh assets) are available at:
 
 ```text
 <repo>/mimic/robot_descriptions/SO100/so100.urdf
 <repo>/mimic/robot_descriptions/SO101/so101_new_calib.urdf
 <repo>/mimic/robot_descriptions/UnitreeG1/g1_23dof.urdf
 <repo>/mimic/robot_descriptions/Microduck/robot_allcollisions.xml
-```
-
-**Blender** (no licence):
-```python
-import sys
-sys.path += [r"<repo>\mimic\scripts", r"<repo>\mimic\scripts\urdf_import"]
-import blender_rig_builder as brb
-rig = brb.build_rig(r"<repo>\path\to\robot.urdf")
-brb.solve_to_target(rig)          # drag `target_CTRL`, then re-solve
 ```
 
 ## Tests
@@ -185,6 +284,13 @@ mayapy test/build_mjcf_and_check.py
 ```bash
 blender --background --python test/blender_check.py -- <urdf> out.json out.png
 ```
+
+To try the actual add-on UI interactively (what the Quickstart demos
+above show), rather than the headless checks: `blender --python
+test/blender_addon_demo_setup.py -- <urdf> [robot_name]` installs and
+enables the add-on, points it at this repo, and pre-fills the robot
+path — everything after that is real clicks in a real Blender window
+(Build Rig, drag a target, Record Waypoint, Export Trajectory...).
 
 ---
 
@@ -245,8 +351,10 @@ moves correctly" are different claims.
 
 Working: URDF/MJCF parse, mesh import, auto-rig, N-DOF IK/FK animation,
 gripper as FK tool control, complete branched FK trees with independent
-per-limb IK in both Maya and Blender, and hardware output (Feetech serial
-and ROS2) from a recorded trajectory.
+per-limb IK in both Maya and Blender, one-click waypoint recording and
+trajectory export via a real installable Blender add-on (no scripting
+required), and hardware output (Feetech serial and ROS2) from a recorded
+trajectory.
 
 Not included: Mimic's existing keyframe-baking and program-export tools
 (those remain hardcoded to 6 axes — the new hardware-output path above is

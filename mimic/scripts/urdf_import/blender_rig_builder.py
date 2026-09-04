@@ -444,6 +444,86 @@ def solve_chain(rig, chain, **kwargs):
     return thetas, converged, pos_err, rot_err
 
 
+_live_ik_poll_state = {}
+
+
+def install_live_ik(rig):
+    """
+    Polls every chain's target_CTRL ~20x/sec and re-solves that chain's IK
+    whenever its target moves -- this is what makes dragging a target in
+    the viewport feel live. One timer per chain, so limbs solve
+    independently (see the Microduck/G1 per-limb drag tests in
+    URDF_IMPORT.md).
+
+    Uses bpy.app.timers rather than a depsgraph handler because mutating
+    object transforms from inside depsgraph_update_post is unsafe in
+    Blender -- a timer is the sanctioned way to react to scene state and
+    then write back to it.
+
+    Safe to call more than once for the same rig (e.g. re-enabling the
+    add-on): each chain's poll state is keyed by its target object's
+    identity, so re-registering just starts fresh from the current pose
+    rather than stacking duplicate timers with stale closures.
+    """
+    _require_blender()
+
+    def make_poll(chain):
+        key = id(chain['target'])
+        _live_ik_poll_state[key] = None
+
+        def poll():
+            try:
+                cur = chain['target'].matrix_world.copy()
+            except (ReferenceError, KeyError):
+                return None  # target/rig gone; stop polling
+            if _live_ik_poll_state.get(key) is None or cur != _live_ik_poll_state[key]:
+                _live_ik_poll_state[key] = cur.copy()
+                try:
+                    solve_chain(rig, chain)
+                except Exception as exc:
+                    print('[urdf_import] IK solve error (%s):' % chain.get('tip_link'), exc)
+            return 0.05
+        return poll
+
+    for chain in rig['chains']:
+        bpy.app.timers.register(make_poll(chain))
+
+
+def record_waypoint(rig, frame=None):
+    """
+    Solves every chain fresh, then keyframes every joint's resulting
+    rotation_euler.z at `frame` (defaults to the current playhead) -- i.e.
+    "record a waypoint" in one call, the one-click equivalent of manually
+    pressing I on every axis object after dragging a target. Includes
+    tool/gripper joints (rig['tool_objs'], or already folded into
+    rig['axis_objs'] for a branched rig -- see _build_branched_rig), so a
+    gripper pose is part of the recording too.
+
+    Solving here rather than trusting install_live_ik()'s timer to have
+    already caught up matters more than it looks: bpy.app.timers only
+    ticks during Blender's normal running event loop, so it silently does
+    nothing in --background scripts, and even interactively a timer poll
+    is at most ~50ms behind a drag -- recording immediately after moving a
+    target could otherwise keyframe the pose from *before* the move. This
+    makes the recorded waypoint always match wherever the target actually
+    is at record time, independent of timer timing.
+
+    Returns the frame number the waypoint was recorded at.
+
+    Raises whatever solve_chain() raises (doesn't swallow it): a caller
+    asked to record a waypoint should find out if the pose being keyframed
+    couldn't actually be solved, not silently get one keyframed anyway.
+    """
+    _require_blender()
+    for chain in rig['chains']:
+        solve_chain(rig, chain)
+    if frame is None:
+        frame = bpy.context.scene.frame_current
+    for obj in list(rig['axis_objs']) + list(rig.get('tool_objs', [])):
+        obj.keyframe_insert(data_path='rotation_euler', index=2, frame=frame)
+    return frame
+
+
 def solve_to_target(rig, target=None, **kwargs):
     """
     Single-chain convenience wrapper around solve_chain(): solves

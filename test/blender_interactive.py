@@ -26,8 +26,6 @@ URDF = argv[0] if argv else os.path.join(
     HERE, '..', 'mimic', 'robot_descriptions', 'SO100', 'so100.urdf')
 ROBOT_NAME = argv[1] if len(argv) > 1 else None
 
-_poll_state = {}
-
 
 def _frame_rig():
     bpy.context.view_layer.update()
@@ -65,38 +63,6 @@ def _frame_rig():
     light.rotation_euler = (math.radians(55), 0, math.radians(35))
 
 
-def _install_live_ik(rig):
-    """
-    Poll every chain's target_CTRL ~20x/sec and re-solve that chain's IK
-    whenever its target moves. Uses bpy.app.timers (not a depsgraph
-    handler) because mutating object transforms from inside
-    depsgraph_update_post is unsafe in Blender -- a timer is the sanctioned
-    way to react to scene state and then write to it. One timer per chain
-    so limbs solve independently, matching how independent physical
-    solvers would behave.
-    """
-    def make_poll(chain):
-        key = id(chain['target'])
-        _poll_state[key] = None
-
-        def poll():
-            try:
-                cur = chain['target'].matrix_world.copy()
-            except (ReferenceError, KeyError):
-                return None
-            if _poll_state[key] is None or cur != _poll_state[key]:
-                _poll_state[key] = cur.copy()
-                try:
-                    brb.solve_chain(rig, chain)
-                except Exception as exc:
-                    print('[urdf_import] IK solve error (%s):' % chain.get('tip_link'), exc)
-            return 0.05
-        return poll
-
-    for chain in rig['chains']:
-        bpy.app.timers.register(make_poll(chain))
-
-
 def main():
     # Clear Blender's default startup scene (Cube/Camera/Light) so it
     # doesn't sit in the viewport occluding the rig or get swept into the
@@ -119,7 +85,7 @@ def main():
               (chain.get('tip_link'), len(chain['joint_specs']), chain['target'].name))
 
     _frame_rig()
-    _install_live_ik(rig)
+    brb.install_live_ik(rig)
 
     bpy.ops.object.select_all(action='DESELECT')
     for chain in rig['chains']:
