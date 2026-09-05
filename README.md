@@ -11,6 +11,8 @@
 [Mimic](https://www.mimicformaya.com/) is a free and open-source plugin for [Autodesk Maya](https://www.autodesk.com/products/maya/overview) that enables simulation, programming, and control of 6-axis, Industrial Robots. Use Mimic to generate programs without writing any code, or extend Mimic to suit your project's needs. Written in Python 3.
 
 > **This fork adds a generic URDF/MJCF importer** — bring in *any* robot (not just the industrial arms above), including humanoids and other branched/multi-limb robots, get an auto-built rig with working IK/FK animation, and drive it with a point-and-click UI in either Maya or **Blender** (no license needed). No robot programming knowledge required. See **[URDF_IMPORT.md](URDF_IMPORT.md)** — starts with a plain-language quickstart, includes short video demos.
+>
+> <p align="center"><img src="docs/media/so100_workflow.gif" width="600" alt="SO-ARM100 workflow: URDF → rig → animate → export — Blender left, validated identically in Maya"></p>
 
 
 ### Installation

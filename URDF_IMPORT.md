@@ -57,6 +57,19 @@ which part:
 
 <p align="center"><img src="docs/media/g1_demo.gif" width="600" alt="Posing the Unitree G1 humanoid's arm independently of its legs"></p>
 
+> **New — full workflow as rendered GIFs** (headless Blender `BLENDER_WORKBENCH` / Maya `mayaSoftware`, empties are interactive viewport handles so they don't appear in the final render — you drag the orange `target_CTRL` arrow live in the real UI):
+>
+> <p align="center"><img src="docs/media/so100_workflow.gif" width="600" alt="Full workflow in Blender: URDF import → pose via IK → record waypoints → export trajectory.json"></p>
+> *Blender (free) — SO-ARM100: `so100.urdf` → **Build Rig** → drag `target_CTRL` (live IK via `robotIKGeneric`/`generic_ik.py`) → **Record Waypoint** per pose → **Export Trajectory** → `trajectory.json` (60 frames, 4 waypoints, smoothstep-interpolated here).*
+>
+> The identical `trajectory.json` round-trips from Maya (same URDF, same waypoint angles, same `t` normalisation — see [Maya ↔ Blender cross-check](#hardware-output)'s `trajectory_export.py` guarantee):
+>
+> <p align="center"><img src="docs/media/maya_workflow.gif" width="600" alt="Same SO-ARM100 workflow in Maya 2026 — identical rig and trajectory export"></p>
+> *Maya 2026 — `so100.urdf` → `rig_builder.build_rig()` → FK sliders / `target_CTRL` IK → `trajectory_export.export_from_maya()` → same `trajectory.json` schema (`mimic.trajectory.v1`) consumed by `feetech_playback.py`/`ros_trajectory_export.py`.*
+>
+> <p align="center"><img src="docs/media/microduck_workflow.gif" width="600" alt="Branched MJCF workflow: Microduck's three limbs each get independent IK → record → export 14-DOF trajectory"></p>
+> *Branched MJCF — `Microduck/robot_allcollisions.xml` (14 hinge DOFs, 3 independent IK chains: `ankle_left`, `ankle_right`, `jaw_soft`) → per-limb `target_CTRL` → branched `blender_rig_builder`/`rig_builder` parity (`_is_branched`, `_select_independent_chains` shared verbatim) → `trajectory_export` 14-DOF `trajectory.json`.*
+
 ### 3. Record a performance, export it
 
 Pose the robot, click **Record Waypoint** — that's one frame of
