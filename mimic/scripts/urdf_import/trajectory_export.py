@@ -144,6 +144,17 @@ def export_from_maya(rig, out_path, robot_name=None, fps=None):
     return dict) and writes a trajectory JSON. Reads whichever of
     axis{i}.rotateZ has keys; for a branched rig this is every joint in
     rig['axis_nodes'], IK-driven or FK-only alike.
+
+    For usability, keyframe times are gathered from the union of the
+    driven axis nodes AND the FK controls / target controls that drive
+    them.  A natural Maya workflow is to key the FK sliders or the
+    target_CTRL itself (drag then S) rather than keying the driven axis
+    nodes directly -- even though Maya technically allows keying a driven
+    channel via pairBlend, export should still succeed when the user keys
+    the control they actually interacted with.  The exported *values* are
+    always sampled from the axis nodes (the authoritative joint angles
+    after IK/FK evaluation), so the timeline being defined by FK/target
+    keys does not change what is recorded.
     """
     import maya.cmds as cmds
 
@@ -157,16 +168,39 @@ def export_from_maya(rig, out_path, robot_name=None, fps=None):
     fps = fps or _maya_fps()
 
     times = set()
+    # Primary: keys on the driven axis nodes themselves (e.g. after baking,
+    # or if the user explicitly keyed them with S while they were selected).
     for node in axis_nodes:
         attr = node + '.rotateZ'
         if cmds.keyframe(attr, query=True, keyframeCount=True) or 0:
             for t in cmds.keyframe(attr, query=True, timeChange=True):
                 times.add(t)
 
+    # Fallback / union: also consider FK controls and target controls as
+    # keyframe sources.  Sampling still reads axis_nodes at those times, so
+    # the IK/FK-driven values are captured correctly regardless of where the
+    # user placed keys.
+    if not times:
+        extra_nodes = list(rig.get('fk_nodes', [])) + list(rig.get('target_ctrls', []))
+        # also consider the single-target alias for pre-branched rigs
+        if rig.get('target_ctrl') and rig['target_ctrl'] not in extra_nodes:
+            extra_nodes.append(rig['target_ctrl'])
+        for node in extra_nodes:
+            for suffix in ('.rotateZ', '.rotateX', '.rotateY',
+                           '.translateX', '.translateY', '.translateZ'):
+                attr = node + suffix
+                try:
+                    if cmds.keyframe(attr, query=True, keyframeCount=True) or 0:
+                        for t in cmds.keyframe(attr, query=True, timeChange=True):
+                            times.add(t)
+                except RuntimeError:
+                    continue
+
     if not times:
         raise TrajectoryExportError(
-            'No keyframes found on any axis node rotateZ. Insert a keyframe (S, '
-            'or right-click > Key Selected) after each pose you want recorded as a waypoint.')
+            'No keyframes found on any axis node rotateZ (or FK/target controls). '
+            'Insert a keyframe (S, or right-click > Key Selected) after each pose '
+            'you want recorded as a waypoint.')
 
     sorted_frames = sorted(times)
     wp_times = _times_from_frames(sorted_frames, fps)
